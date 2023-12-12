@@ -216,149 +216,142 @@ In conclusion, the animation of the `pmd.c` simulation is not just a visual aid 
 - An MPI implementation (e.g., OpenMPI, MPICH).
 - A C compiler (e.g., GCC).
 
+----
 
-
-## 🔸Task 4: Visualize the 3x3 stress tensor
+## 🔸Task 4: Visualize Stress Values
 
 ### Objective
 
-To expand the capability of our OpenGL-based molecular dynamics simulation visualization program, mtv.c, we integrated a new feature that allows for color-coding of stress values of the atoms.
+To expand the capability of our OpenGL-based molecular dynamics simulation visualization program, `mtv.c`, we added a feature that allows for color-coding of stress values of each individual atom.
 
 ### Implementation
 
-3 x 3 stress vector of the the i-th atom (i = 0, ..., N-1) can be represented as 
+1. **Compute the 3 x 3 stress tensor of each atom at every timestamp.**
 
-<div align="center">
-    <img src="/Task4_ColorCodeStress/figures/formula.png" width="400">
-</div>
+   - 3 x 3 stress vector of the the i-th atom (i = 0, ..., N-1) can be represented as: 
+   <img src="Task4_ColorCodeStress/figures/formula.png" alt="3x3 stress tensor" width="400" />
 
-
-where N is the total number of atoms, W=L<sub>x</sub>L<sub>y</sub>L<sub>z</sub> is the volume of the simulation box, r<sup>&alpha;&beta;</sup><sub>i</sub>  is the &alpha;-th component of the vector r<sub>ij</sub> = r<sub>i</sub> − r<sub>j</sub> , and u(r) is the is the Lennard-Jones potential function.
-
-To visualize stress values of the atoms in mtv.c, we made the following updates:
-
-1. **Calulate the 3 x 3 Stress Tensor of Each Atom:** Implement a function that calculates the stress tensor for each atom at every timestep.
-
-   <div align="center">
-       <img src="/Task4_ColorCodeStress/figures/stress_vector.png" width="400">
-   </div>
-
-   ```c
-   void SingleStep() {
-   	int n,k;
-   	HalfKick(); /* First half kick to obtain v(t+Dt/2) */
-   	for (n=0; n<nAtom; n++) /* Update atomic coordinates to r(t+Dt) */
-   		for (k=0; k<3; k++) r[n][k] = r[n][k] + DeltaT*rv[n][k];
-   	ApplyBoundaryCond();
-   	ComputeAccel(); /* Computes new accelerations, a(t+Dt) */
-   	HalfKick(); /* Second half kick to obtain v(t+Dt) */
-     ComputeStressTensor();
-   }
+   , where N is the total number of atoms, W=L<sub>x</sub>L<sub>y</sub>L<sub>z</sub> is the volume of the simulation box, r<sup>&alpha;&beta;</sup><sub>i</sub>  is the &alpha;-th component of the vector r<sub>ij</sub> = r<sub>i</sub> − r<sub>j</sub> , and u(r) is the is the Lennard-Jones potential function
    
-   void animate() { /* Callback function for idle events */
-       /* Keep updating the scene until the last MD step is reached */
-       if (stepCount <= StepLimit) {
-           SingleStep(); /* One MD-step integration */
-           if (stepCount%StepAvg == 0) EvalProps(); 
-           makeCurframeGeom(); /* Redraw the scene (make a display list) */
-           glutPostRedisplay(); 
-           ++stepCount;
-       }
-   }
-   ```
+   - Example stress vector being calculated:
+      <img src="Task4_ColorCodeStress/figures/stress_vector.png" alt="calculared stress vector" width="500"/>
 
-   ### 
+   - Code Snippet:
+      ```c
+      void SingleStep() {
+         ...
+         ComputeAccel();
+         HalfKick();
+         ComputeStressTensor();  /* function that computes the 3x3 stress tensor */
+         }
+      ```
 
-2. **Calculate Von Mises Stress of Each Atom:** Implement a function that calculates the Von Mises Stress (aka. stress tensor magnitude) for each atom at every timestep.
+2. **Calculate the Von Mises Stress of each atom.** 
 
-   ```c
-   double CalculateStressMagnitude(double stressTensor[3][3]) {
-       double magnitude = 0.0;
-       for (int i = 0; i < 3; ++i) {
-           for (int j = 0; j < 3; ++j) {
-               magnitude += stressTensor[i][j] * stressTensor[i][j];
-           }
-       }
-       return sqrt(magnitude);
-   }
-   ```
+   - Von Mises stress is a scalar value derived from the stress tensor that is often used to represent magnitude of the stress tensor
 
-3. **Map Stress Tensor Magnitude to Colors:** Implement a function that maps the stress tensor magnitude to a color. 
-
-   ```c
-   void MapStressToColor(double magnitude, float color[3]) {
-   
-       // normalize the magnitude to [0, 1]
-       int minStress = 0.0;
-       int maxStress = 60.0; 
-       double normalizedStress = (magnitude - minStress) / (maxStress - minStress);
-   
-       if (normalizedStress < 0.25) {
-           // blue to cyan
-           color[0] = 0.0; 
-           color[1] = 4 * normalizedStress;
-           color[2] = 1.0; 
-       } else if (normalizedStress < 0.5) {
-           // cyan to green
-           color[0] = 0.0;
-           color[1] = 1.0; 
-           color[2] = 1.0 - 4 * (normalizedStress - 0.25);
-       } else if (normalizedStress < 0.75) {
-           // green to yellow
-           color[0] = 4 * (normalizedStress - 0.5); 
-           color[1] = 1.0;
-           color[2] = 0.0;
-       } else {
-           // yellow to red
-           color[0] = 1.0; 
-           color[1] = 1.0 - 4 * (normalizedStress - 0.75); 
-           color[2] = 0.0; 
-       }
-   }
-   ```
-
-4. **Render Atoms with Color Coding:** Within the rendering loop, update the color for each atom as determined by magnitude of the stress.
-
-   ```c
-   void makeAtoms() {
-     int i;
-     float color[3];
-     glNewList(atomsid, GL_COMPILE);
-     for (i=0; i < nAtom; i++) {
-       // map stress to color
-       double magnitude = CalculateStressMagnitude(stressTensor[i]);
-       MapStressToColor(magnitude, color);
-       // draw sphere
-       glPushMatrix();
-       glTranslatef(r[i][0],r[i][1],r[i][2]);
-       glColor3f(color[0], color[1], color[2]);
-       glCallList(sphereid);
-       glPopMatrix();
+   - Code snippet:
+     ```c
+     double CalculateStressMagnitude(double stressTensor[3][3]) {
+         double magnitude = 0.0;
+         for (int i = 0; i < 3; ++i) {
+             for (int j = 0; j < 3; ++j) {
+                 magnitude += stressTensor[i][j] * stressTensor[i][j];
+             }
+         }
+         return sqrt(magnitude);
      }
-     glEndList();
-   }
+     ```
+
+3. **Map Stress Tensor Magnitude to Colors.** 
    
-   void makeCurframeGeom() {
-     makeAtoms();
-   }
-   
-   void animate() { /* Callback function for idle events */
-       /* Keep updating the scene until the last MD step is reached */
-       if (stepCount <= StepLimit) {
-           SingleStep(); /* One MD-step integration */
-           if (stepCount%StepAvg == 0) EvalProps(); 
-           makeCurframeGeom(); /* Redraw the scene (make a display list) */
-           glutPostRedisplay(); 
-           ++stepCount;
+   - Implemented a function that maps the stress tensor magnitude to a color. 
+
+   - Inspired by the color scale commonly used by finite element analysis software such as Ansys
+      <img src="Task4_ColorCodeStress/figures/color_scales.png" alt="color_scales" width="150"/>
+
+   - Code snippet:
+     ```c
+     void MapStressToColor(double magnitude, float color[3]) {
+     
+         // normalize the magnitude to [0, 1]
+         double normalizedStress = (magnitude - minStress) / (maxStress - minStress);
+     
+         if (normalizedStress < 0.25) {
+             // blue to cyan
+             color[0] = 0.0; 
+             color[1] = 4 * normalizedStress;
+             color[2] = 1.0; 
+         } else if (normalizedStress < 0.5) {
+             // cyan to green
+             color[0] = 0.0;
+             color[1] = 1.0; 
+             color[2] = 1.0 - 4 * (normalizedStress - 0.25);
+         } else if (normalizedStress < 0.75) {
+             // green to yellow
+             color[0] = 4 * (normalizedStress - 0.5); 
+             color[1] = 1.0;
+             color[2] = 0.0;
+         } else {
+             // yellow to red
+             color[0] = 1.0; 
+             color[1] = 1.0 - 4 * (normalizedStress - 0.75); 
+             color[2] = 0.0; 
+         }
+     }
+     ```
+
+4. **Render Atoms with Color Coding.** 
+
+   - Within the main rendering loop, update the color for each atom as determined by magnitude of the stress
+
+   - Code snippet for updating the color for each atom:
+     ```c
+     void makeAtoms() {
+       float color[3];
+       ...
+       for (i=0; i < nAtom; i++) {
+         double magnitude = CalculateStressMagnitude(stressTensor[i]);
+         MapStressToColor(magnitude, color);
+         ...
        }
-   }
-   ```
+       ...
+     }
+
+     void makeCurframeGeom() {
+       makeAtoms();
+     }
+     ```
+     - Code snippet for the main rendering loop:
+     ```c
+     void animate() { 
+         /* Keep updating the scene until the last MD step is reached */
+         if (stepCount <= StepLimit) {
+             ...
+             makeCurframeGeom(); /* Redraw the scene (make a display list) */
+             ...
+         }
+     }
+     ```
+
+### Simulation Result
+<img src="Task4_ColorCodeStress/simulation_result.gif" alt="simulation result" width="300"/>
+
+### Discussion
+In the OpenGL-based molecular dynamics visualization program `mdv.c`, we have implemented a color-coding scheme that enhances the interpretability of atomic interactions. This program visually distinguishes between various stress levels experienced by individual atoms: blue represents regions of low stress, while red indicates areas of high stress. 
+
+### Conclusion
+
+By color-coding stress level experienced by individual atoms, we improves the visual interpretability of atomic interactions, enabling a more intuitive understanding of molecular dynamics. This feature can be particularly beneficial for educational purposes, where it can be used to demonstrate the molecular behavior under different conditions.
 
 ### Compilation and Execution Instructions
 
-1. **Compile the Code**:
+1. **Go To the Folder**:
+   ```bash
+   cd Task4_ColorCodeStress
+   ```
 
-   Go to Task4_ColorCodeStress folder, run the following command:
+2. **Compile the Code**:
 
    ```bash
    cc -o mdv mdv.c -framework OpenGL -framework GLUT -w
@@ -369,12 +362,7 @@ To visualize stress values of the atoms in mtv.c, we made the following updates:
    ```bash
    ./mdv < md.in
    ```
+### Requirements
 
-## Simulation Result:
-<div align="center">
-    <img src="/Task4_ColorCodeStress/simultaion_result.gif" width="400">
-</div>
-
-### Conclusion
-
-By color-coding stress tensor of individual atoms, we improves the visual interpretability of complex stress interactions at the atomic level, thereby enabling a more intuitive understanding of molecular dynamics. This project stands as a testament to the potential of integrating visualization techniques with more sophisticated computational physics models. 
+- GCC compiler  
+- OpenGL environment
